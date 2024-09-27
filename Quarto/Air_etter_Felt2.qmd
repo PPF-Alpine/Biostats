@@ -1,0 +1,192 @@
+---
+title: "Air data"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r}
+#| label: load-packages
+#| message: false
+#| echo: true
+
+library(tidyverse) # for ggplot2, dplyr, readr etc
+library(here)      # for help finding files
+library(janitor)  # format column names
+library(readxl)
+library(lubridate)
+
+library(stringr)
+```
+
+## Load data
+
+```{r}
+#| label: load-data
+#| message: false
+#| echo: true
+
+# Path
+csv_files <-list.files(here("Data"),pattern = "*.csv$", full.names = TRUE) #$ - at the end
+#View(csv_files)
+
+#Richard: Hvordan gjøre dette med opprinnelige filnavn, dvs. uten mellomrom?
+
+# Rett
+loggers <- read_csv(file = here("Data/loggers_vs_plots.csv"))
+#View(loggers)
+loggers1<-loggers |> 
+  select(id_plot,treatment = treatment_caro, sensor = air) 
+#View(loggers1)
+
+```
+
+## Tidy data
+
+```{r}
+#| label: tidy-data
+#| message: false
+#| echo: true
+
+#csv_list <- lapply(csv_files, read.csv)
+#combined_data <- do.call(rbind, csv_list)
+
+air <- map(csv_files, \(f){
+  a <- read_csv2(f)
+  a <- a[-1,]
+  colnames(a)<-c("id","date","temp","humidity")
+  a$sensor<- as.numeric(word(basename(f)))
+  a
+  
+}) |> 
+  list_rbind() |> 
+  left_join(loggers1, by = "sensor")
+
+# Hvorfor: Avis : NAs introduits lors de la conversion automatique?
+
+air <- air |> 
+  separate_wider_delim(cols = id, delim = ",", names = c("id","date","temp","humidity"), too_many = "drop") |> 
+  drop_na(sensor) |> 
+  mutate(date = mdy_hms(date)) |> 
+  mutate_at(vars(id, temp, humidity), as.numeric) |> 
+  drop_na(temp, humidity)
+
+#Alternative to last line:
+#air$id <- as.integer(air$id) 
+#air$temp <- as.numeric(air$temp) 
+#air$humidity <- as.numeric(air$humidity) 
+
+#view(air)
+
+# Richard: Hva gjør denne?
+air |> 
+  filter(is.na(treatment)) |> 
+  distinct(sensor)
+
+```
+
+## Averages
+
+```{r}
+#| label: average-data
+#| message: false
+#| echo: true
+
+#Temperature
+temp_day <- air |> 
+  mutate(date = floor_date(date, unit ="day")) |> 
+  group_by(date, treatment, sensor) |>
+  summarise(mean_temp_d = mean(temp), na.rm = TRUE)
+#View(temp_day)
+
+temp_month <- air |> 
+  mutate(date = floor_date(date, unit ="month")) |> 
+  group_by(date, treatment, sensor) |>
+  summarise(mean_temp_m = mean(temp), na.rm = TRUE)
+#View(temp_month)
+
+# Humidity
+humid_day <- air |> 
+  mutate(date = floor_date(date, unit ="day")) |> 
+  group_by(date, treatment, sensor) |>
+  summarise(mean_humi_d = mean(humidity), na.rm = TRUE)
+#View(humid_day)
+
+humid_month <- air |> 
+  mutate(date = floor_date(date, unit ="month")) |> 
+  group_by(date, treatment) |>
+  summarise(mean_humi_m = mean(humidity), na.rm = TRUE)
+#View(humid_month)
+
+```
+
+## Plots: Temperature
+
+```{r}
+#| label: temperature-graphs
+#| echo: false
+
+# Temperature
+ggplot(air, aes(x=date, y=temp, colour=treatment)) +
+  geom_smooth() 
+
+ggplot(air, aes(x=date, y=temp, colour= id_plot)) +
+  geom_smooth()+
+  labs(title = "Temperature per plot", x = "Date", y = "Temperature")
+
+# Average temperature
+ggplot(temp_day, aes(x =date, y = mean_temp_d, colour=treatment))+
+  geom_line()+
+  labs(title = "Average air temperature per day", x = "Date", y = "Average air temperature")
+
+ggplot(temp_day, aes(x=date, y=mean_temp_d, colour=factor(sensor), group = sensor)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~treatment)
+
+ggplot(temp_month, aes(x = date, y = mean_temp_m, colour=treatment))+
+  #geom_line()+
+  geom_smooth()+
+  labs(title = "Average air temperature per month", x = "Date", y = "Average air temperature")
+
+ggplot(temp_month, aes(x=date, y=mean_temp_m, colour=factor(sensor), group = sensor)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~treatment)
+
+
+```
+
+## Plots: Humidity
+
+```{r}
+#| label: humidity-graphs
+#| echo: false
+
+#Humidity
+ggplot(air, aes(x=date, y=humidity, colour=treatment)) +
+  geom_smooth()+
+  labs(title = "Humidity per plot", x = "Date", y = "Humidity")
+
+ggplot(air, aes(x=date, y=humidity, colour= id_plot)) +
+  geom_smooth()+
+  labs(title = "Humidity per plot", x = "Date", y = "Humidity")
+
+
+# Average humidity
+ggplot(humid_day, aes(x =date, y = mean_humi_d, colour=treatment))+
+  geom_line()+
+  labs(title = "Average air humidity per day", x = "Date", y = "Average air humidity")
+
+ggplot(humid_day, aes(x=date, y=mean_humi_d, colour=factor(sensor), group = sensor)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~treatment)
+
+ggplot(humid_month, aes(x = date, y = mean_humi_m, colour=treatment))+
+  #geom_line()+
+  geom_smooth()+
+  labs(title = "Average air humidity per month", x = "Date", y = "Average air humidity")
+
+
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).

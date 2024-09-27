@@ -1,0 +1,233 @@
+---
+title: "Pollination"
+format: html
+date: today
+author: L. Draganova
+editor: visual
+---
+
+## Load packages
+
+```{r}
+#| label: load-packages
+#| echo: true
+#| include: false
+#| message: false
+#| warning: true
+
+library(tidyverse) # for ggplot2, dplyr, readr etc
+library(here)      # for help finding files
+#library(lubridate) # for handling dates & times
+library(janitor)  # format column names
+library("gt") # package for tables
+
+library(igraph)
+library(bipartite)
+
+
+# default plot theme
+theme_set(theme_bw())
+
+# default number of digit
+options(digits = 2)
+
+
+```
+
+## Loading data
+
+```{r}
+#| label: load-data-format-names
+#| echo: true
+#| include: false
+#| message: false
+#| warning: true
+
+# plant species
+plant_spec <- read.csv(file = here("Data/plant_species.csv")) |> 
+  janitor::clean_names()
+#View(plant_spec)
+
+# plant-pollinator observations
+pollin2 <- read.csv(file = here("Data/plant_pollinator_2024_06_18.csv")) |> 
+  janitor::clean_names()
+#View(pollin2)
+
+
+```
+
+## Tidy data
+
+```{r}
+#| label: tidy-data
+#| echo: true
+#| include: true
+#| message: true
+#| warning: true 
+
+
+# inconsistent names between plant_spec and pollin2
+pollin2 <- pollin2 |> 
+  mutate(plant_species = if_else(plant_species == ("Calceolaria sp"), true = ("Calceolaria sp1"), false = plant_species)) |>
+  mutate(plant_species = if_else(plant_species == ("Chuquiraga jussieae"), true = ("Chuquiraga jussieui"), false = plant_species)) |>
+  mutate(plant_species = if_else(plant_species == ("Halenia weddeliana") | plant_species == ("Halenia wedelliana"), true = ("Halenia weddelliana"), false = plant_species)) |> 
+  mutate(plant_species = if_else(plant_species == ("Hypochaeris sessiflora"), true = ("Hypochaeris sessiliflora"), false = plant_species)) |>
+  mutate(plant_species = if_else(plant_species == ("Lasiocephallus ovatus"), true = ("Lasiocephalus ovatus"), false = plant_species)) |> 
+    mutate(plant_species = if_else(plant_species == ("Nototriche phyllantoides"), true = ("Nototriche phyllanthos"), false = plant_species)) 
+  
+pollin_sum <- pollin2 |> 
+  group_by(plant_species, taxa) |> 
+  summarise(number = n()) |> 
+  as_tibble()
+
+#idem pollin_sum
+#pollin_test <- pollin2 |> 
+#  count(plant_species, taxa) |> 
+#  as_tibble()
+
+#console
+#class(pollin_test2)
+# "tbl_df"     "tbl"        "data.frame"
+
+#Richard: how do I convert pollin_sum to tibble?
+
+
+pol_d<-pivot_wider(pollin_sum, names_from = "taxa", values_from = "number", values_fill = 0) |> 
+  as.data.frame() |> 
+  column_to_rownames(var = "plant_species") |> 
+  as.matrix()
+#View(pol_d)
+
+```
+
+## Plant - pollinator data
+
+```{r}
+#| label: pollinator-data
+#| echo: true
+#| include: true
+#| message: true
+#| warning: true
+
+# Baccharis buxifolia is missing from original plant species list
+# Richard: is it possible to merge this with the next command?
+plant_spec <- add_row(plant_spec, species_name = "Baccharis buxifolia", family = "Asteraceae", id_species = 42)
+
+## inconsistent names
+pollinator2 <- plant_spec |> 
+  rename(plant_species = species_name) |> 
+  mutate(plant_species = if_else(plant_species == ("Asteraceae 2 (black)"), true = ("Asteraceae sp2 (black)"), false = plant_species)) |> 
+  left_join(pollin_sum, by = join_by(plant_species)) |> 
+  mutate(number = replace_na(data = number, replace = 0)) |> 
+  #mutate(taxa = fct_explicit_na(taxa, na_level = "missing")) |> UTGÅTT
+  mutate(taxa = fct_na_value_to_level(taxa, level ="missing"))
+
+# Converts all NA to 0:
+#plant_spec2[is.na(plant_spec2)] <- 0
+
+# plants with enough pollination data
+enough_pollin <- pollinator2 |> 
+  filter(number > 1) |> 
+  arrange(desc(number))
+  
+# plants with only 1 pollination data
+few_pollin <- pollinator2 |> 
+  filter(number == 1)
+  
+# plants without pollination data
+no_pollin <- pollinator2 |> 
+  filter(number < 1)
+
+# Richard: why not possible to do the same with pol_d?
+# same as no_pollin???
+#no_pol <- pollinator2 |> 
+#    anti_join(pollin_sum, by = join_by(plant_species))
+
+```
+
+## Tables for plant - pollinator interactions
+
+```{r}
+#| label: tbl-no-pollinators
+#| message: false
+#| echo: fenced
+#| tbl-cap: Table plant species without pollinator interactions
+
+#Error with tables: Richard - my objects are tibbles why is that not ok?
+
+#Error in `tab_header()`:
+#! `data` must be a `gt_tbl` object, not a character matrix.
+#Run `rlang::last_trace()` to see where the error occurred.
+
+
+table_no_obs <- no_pollin |>
+  select(id_species, family, plant_species) |> 
+  gt(no_pollin) |> 
+  tab_header(title = "Species without pollinator interactions") #|> 
+  #cols_label(id_species ="Species ID", family = "Family", plant_species = "Species")
+
+
+# What happens here? 
+table_no_obs <- no_pollin |>
+  select(id_species, family, plant_species) |> 
+  gt()
+ 
+View(table_no_obs)
+
+```
+
+```{r}
+#| label: tbl-one-pollinator
+#| message: false
+#| echo: true
+#| tbl-cap: Table plant species with only one pollinator interaction
+
+table_1obs <- few_pollin |>
+  select(id_species, family, plant_species) |> 
+  gt() |> 
+  tab_header(title = "Species with only one pollinator interaction") |> 
+  cols_label(id_species ="Species ID", family = "Family", plant_species = "Species", insect = "Pollinator", number = "Interactions")
+ 
+table_1obs
+
+```
+
+```{r}
+#| label: tbl-multiple-pollinators
+#| message: false
+#| echo: true
+#| tbl-cap: Table plant species with multiple pollinator interactions
+
+table_many_obs <- enough_pollin |>
+  #select(id_species, family, plant_species) |> 
+  gt(enough_pollin) |> 
+  tab_header(title = "Species with multiple pollinator interactions") |> 
+  cols_label(id_species ="Species ID", family = "Family", plant_species = "Species", taxa = "Pollinator", number = "Interactions")
+ 
+table_many_obs
+
+```
+
+## Plant - pollinator graphs
+
+```{r}
+#| label: pollinator-graphs
+#| echo: true
+#| include: true
+#| message: true
+#| warning: true
+
+## plotting plant-pollinator observations
+
+  # igraph package
+  tdf <- table(pollin_sum[,c(1,2)])
+  g <- graph_from_biadjacency_matrix(tdf, weighted = TRUE)
+  is_bipartite(g)
+  
+  colrs <- c("forestgreen", "lightblue")[V(g)$type + 1L]
+  plot(g, vertex.color = colrs, layout = layout_as_bipartite)
+
+  # bipartite package
+  plotweb(pol_d)
+
+```

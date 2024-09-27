@@ -1,0 +1,125 @@
+---
+title: "Soil moisture"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r}
+#| label: load-packages
+#| message: false
+#| echo: true
+
+library(tidyverse) # for ggplot2, dplyr, readr etc
+library(here)      # for help finding files
+library(janitor)  # format column names
+library(readxl)
+library(lubridate)
+
+library(stringr)
+```
+
+## Load data
+
+```{r}
+#| label: load-data
+#| message: false
+#| echo: true
+
+# Resolved PROBLEM WITH PATH
+file <-list.files(here("Data"),pattern = "xlsx$", full.names = TRUE) #$ - at the end
+#View(file)
+
+
+# Rett
+loggers <- read_csv(file = here("Data/loggers_vs_plots.csv"))
+#View(loggers)
+loggers1<-loggers |> 
+  select(id_plot,treatment = treatment_caro, sensor = soil) |> 
+  mutate(sensor = if_else(sensor == 21766292, true = 21762992, false = sensor))
+#View(loggers1)
+
+# if need to change more that 1 thing case_when()
+```
+
+## Tidy data
+
+```{r}
+#| label: tidy-data
+#| message: false
+#| echo: true
+
+moisture <- map(file, \(f){
+  a <- read_excel(f, sheet = "Fecha")
+  colnames(a)<-c("id","date","vol_cont")
+  a$sensor<- as.numeric(word(basename(f)))
+  a
+  
+}) |> 
+  list_rbind() |> 
+  left_join(loggers1, by = "sensor")
+
+moisture |> 
+  filter(is.na(treatment)) |> 
+  distinct(sensor)
+
+View(moisture)
+
+
+```
+
+## Averages
+```{r}
+#| label: average-data
+#| message: false
+#| echo: true
+
+#Averages
+
+moisture_day <- moisture |> 
+  mutate(date = floor_date(date, unit ="day")) |> 
+  group_by(date, treatment, sensor) |>
+  summarise(mean_moist_d = mean(vol_cont), na.rm = TRUE)
+View(moisture_day)
+
+moisture_month <- moisture |> 
+  mutate(date = floor_date(date, unit ="month")) |> 
+  group_by(date, treatment) |>
+  summarise(mean_moist_m = mean(vol_cont), na.rm = TRUE)
+View(moisture_month)
+
+```
+
+## Plots
+
+```{r}
+#| label: graphs
+#| echo: false
+
+ggplot(moisture, aes(x=date, y=vol_cont, colour=treatment)) +
+  geom_smooth()
+
+ggplot(moisture, aes(x=date, y=vol_cont, colour= id_plot)) +
+  geom_smooth()+
+  labs(title = "Soil moisture per plot", x = "Date", y = "Soil moisture")
+
+ggplot(moisture, aes(x=date, y=vol_cont, colour=factor(sensor), group = sensor)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~treatment)
+
+ggplot(moisture_day, aes(x =date, y = mean_moist_d, colour=treatment))+
+  geom_line()+
+  labs(title = "Average soil moisture per day", x = "Date", y = "Average soil moisture")
+
+ggplot(moisture_day, aes(x=date, y=mean_moist_d, colour=factor(sensor), group = sensor)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~treatment)
+
+ggplot(moisture_month, aes(x =date, y = mean_moist_m, colour=treatment))+
+  geom_line()+
+  #geom_smooth()+
+  labs(title = "Average soil moisture per month", x = "Date", y = "Average soil moisture")
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
